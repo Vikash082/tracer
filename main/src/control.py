@@ -4,13 +4,13 @@ import json
 from pprint import pprint
 import pycassa
 import redis
-
+import urllib3
 from lib.helper import get_action_value_endpoints, get_topology_details
 
 
 config = ConfigParser.ConfigParser()
 topology_info = dict()
-config.read("/root/git/tracer/main/config/config.ini")
+config.read("/home/user/tracer/main/config/config.ini")
 src_port = config.get("INFO", 'src_port')
 dst_port = config.get("INFO", 'dst_port')
 policy_id = config.get("INFO", "policy_id")
@@ -56,6 +56,19 @@ topology_info['topology'] = topo
 chain_port_details = get_topology_details(topo, server, pycassa, pool)
 
 pprint(chain_port_details)
+
+http = urllib3.PoolManager()
+headers = {'content-type': 'application/json'}
+
+payload = json.dumps({'flow_string':'in_port=6,dl_dst=fa:16:3e:32:5b:c8,tcp'})
+request = http.urlopen('POST', 'http://192.168.6.74:5433/ofproto-traces',
+                       body=payload, headers=headers)
+
+
+data = json.loads(request.data)
+
+for line in data:
+    print "Line : ", line
 # res = server.get("mirror_nws_info")
 # res = json.loads(res)
 # for key in res:
