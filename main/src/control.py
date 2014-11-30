@@ -6,6 +6,7 @@ import pycassa
 import redis
 import urllib3
 from lib.helper import get_action_value_endpoints, get_topology_details
+import re
 
 
 config = ConfigParser.ConfigParser()
@@ -68,7 +69,15 @@ request = http.urlopen('POST', 'http://192.168.6.74:5433/ofproto-traces',
 data = json.loads(request.data)
 
 for line in data:
-    print "Line : ", line
+    if line:
+        #print "Line : ", line.split('\n')
+        res = line.split('\n')
+        for i in res:
+            #print "i ---->  ", i
+            
+            m = re.compile('Flow:|Rule:|OpenFlow actions:|Resubmitted flow:|Final flow:|Datapath actions:')
+            if m:
+                print m.split(i)
 # res = server.get("mirror_nws_info")
 # res = json.loads(res)
 # for key in res:
