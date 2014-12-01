@@ -1,6 +1,6 @@
 import ast
 import json
-
+import re
 from lib import constants
 
 
@@ -80,3 +80,34 @@ def get_topology_details(topo, redis, pycassa_obj, cassandra_pool):
         else:
             port_details.append(get_port_details(port, dvsport_col))
     return port_details
+
+
+def construct_remote_flow(output_action):
+    flow_string = 'in_port=1,'
+    for elem in output_action:
+        m = re.match(r"(?P<key>(mod_vlan_vid|set_tunnel64|"
+                     "load|output)[:](?P<value>.*)", elem)
+        if m:
+            if m.group('key') == 'mod_vlan_vid':
+                flow_string += ('dl_vlan=' + m.group('value') + ',')
+            elif m.group('key') == 'load':
+                remote_ip = get_remote_ip(m.group('value'))
+            elif m.group('key') == 'set_tunnel64':
+                flow_string += ('tun_id=' + m.group('value') + ',')
+    return (remote_ip, flow_string)
+
+
+def get_remote_ip(ip_string):
+    m = re.match(r"(?P<ip>(0[xX][0-9a-fA-F]+)[-,>](?P<rest>.*)")
+    ip_addr = ''
+    if m:
+        ip = m.group('ip')
+        for i in xrange(2, len(ip), 2):
+            octet = int(ip[i:i + 2])
+            ip_addr += (octet + '.')
+        return ip_addr[:-1]
+
+
+def validate_port(port_no, current_chain_index, chain_details):
+    if isinstance(chain_details[current_chain_index], list):
+        pass
