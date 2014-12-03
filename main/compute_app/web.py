@@ -6,10 +6,10 @@ from subprocess import Popen, PIPE
 app = Flask(__name__)
 
 
-@app.route("/ofproto-trace/", methods=['POST'])
+@app.route("/ofproto-traces", methods=['POST'])
 def execute_ofproto_trace():
     body = request.json
-    res = Popen(["ovs-appctl", "ofproto/trace", "br-int", body["flow_input"]],
+    res = Popen(["ovs-appctl", "ofproto/trace", "br-int", body["flow_string"]],
                  stdout=PIPE)
     return json.dumps(res.communicate())
 

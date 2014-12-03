@@ -164,7 +164,6 @@ while True:
     output_action_list = flow['OpenFlow actions'][-1].split(',')
     if 'output:1' in output_action_list:
         #output_action = flow['OpenFlow actions'][-1].split(',')
-        import pdb; pdb.set_trace()
         switch_ip, flow_string = construct_remote_flow(output_action_list,
                                                        dst_mac)
         switch_ip = get_switch_ip(switch_ip)
@@ -178,7 +177,6 @@ while True:
         payload = json.dumps({'flow_string': flow_string})
         src_switch_ip = switch_ip
     else:
-        import pdb; pdb.set_trace()
         index = [i for i, item in enumerate(output_action_list)
                   if re.search(r"(output:[0-9]+)", item)]
 
