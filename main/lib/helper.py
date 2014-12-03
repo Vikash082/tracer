@@ -64,7 +64,8 @@ def get_port_details(port_id, port_col_obj):
         port_state=dvsport_info.get('dvsPortState'),
         port_num=dvsport_info.get('ovsPortNum'),
         port_name=dvsport_info.get('ovsPortName'),
-        mac_Address=dvsport_info.get('macAddress'))
+        mac_Address=dvsport_info.get('macAddress'),
+        port_id=port_id)
         return port_details
 
 
@@ -82,11 +83,12 @@ def get_topology_details(topo, redis, pycassa_obj, cassandra_pool):
     return port_details
 
 
-def construct_remote_flow(output_action):
-    flow_string = 'in_port=1,'
+def construct_remote_flow(output_action, dst_mac):
+    flow_string = 'in_port=1,tcp,dl_dst=' + dst_mac + ','
+    remote_ip = None
     for elem in output_action:
         m = re.match(r"(?P<key>(mod_vlan_vid|set_tunnel64|"
-                     "load|output)[:](?P<value>.*)", elem)
+                     "load|output))[:](?P<value>.*)", elem)
         if m:
             if m.group('key') == 'mod_vlan_vid':
                 flow_string += ('dl_vlan=' + m.group('value') + ',')
@@ -98,16 +100,143 @@ def construct_remote_flow(output_action):
 
 
 def get_remote_ip(ip_string):
-    m = re.match(r"(?P<ip>(0[xX][0-9a-fA-F]+)[-,>](?P<rest>.*)")
+    m = re.match(r"(?P<ip>(0[xX][0-9a-fA-F]+))[-,>](?P<rest>.*)", ip_string)
     ip_addr = ''
     if m:
         ip = m.group('ip')
         for i in xrange(2, len(ip), 2):
-            octet = int(ip[i:i + 2])
-            ip_addr += (octet + '.')
+            octet = int(ip[i:i + 2], 16)
+            ip_addr += (str(octet) + '.')
         return ip_addr[:-1]
 
 
-def validate_port(port_no, current_chain_index, chain_details):
-    if isinstance(chain_details[current_chain_index], list):
-        pass
+def construct_flow(chain_details, current_chain_index, dst_mac, reverse,
+                   in_port):
+    #in_port = ast.literal_eval(in_port)
+    if not reverse:
+        if isinstance(chain_details[current_chain_index], list):
+            if in_port == chain_details[current_chain_index][0]['port_num']:
+                # Considering only the case of L2
+                out_port = chain_details[current_chain_index][1]['port_num']
+    else:
+        if isinstance(chain_details[current_chain_index], list):
+            if in_port == chain_details[current_chain_index][-1]['port_num']:
+                # Considering only the case of L2
+                out_port = chain_details[current_chain_index][0]['port_num']
+    # We don't require mac here.
+    flow_string = "in_port=" + str(out_port) + ",dl_dst=" + dst_mac
+    return flow_string, out_port
+
+
+def validate_port(port_no, current_chain_index, chain_details, reverse,
+                  remote_switch_ip=None):
+    #port_no = ast.literal_eval(port_no)
+    hop = chain_details[current_chain_index]
+    if isinstance(hop, list):
+        hop_ip = hop[0]['switch_ip']
+    else:
+        hop_ip = hop['switch_ip']
+    if reverse:
+        if (current_chain_index - 1) > 0:
+            raise Exception("Fatal Error")
+        else:
+            next_hop = chain_details[current_chain_index - 1]
+    else:
+        if (current_chain_index + 1) >= len(chain_details):
+            raise Exception("Fatal Error")
+        else:
+            next_hop = chain_details[current_chain_index + 1]
+    if port_no == 1:
+        if isinstance(next_hop, list):
+            next_hop_ip = next_hop[-1]['switch_ip']
+        else:
+            next_hop_ip = next_hop['switch_ip']
+        #if hop_ip == next_hop_ip or remote_switch_ip == next_hop_ip:
+        if hop_ip == next_hop_ip or remote_switch_ip == next_hop_ip:
+            raise Exception("Issue with flow configuration or classifier")
+    else:
+        if not reverse:
+            if isinstance(next_hop, list):
+                next_hop_port = next_hop[0]['port_num']
+            else:
+                next_hop_port = next_hop['port_num']
+        else:
+            if isinstance(next_hop, list):
+                next_hop_port = next_hop[-1]['port_num']
+            else:
+                next_hop_port = next_hop['port_num']
+        if next_hop_port != port_no:
+            raise Exception("Output port did not match with the topology")
+
+
+def dump_flow_in_file(filename, content):
+    with open(filename, 'a+b') as logfile:
+        logfile.write(content)
+
+
+def prepare_expected_packet_path(chain_details, reverse):
+    port_chain = []
+    next_switch_ip = None
+    if not reverse:
+        for i in range(0, len(chain_details)):
+            if i + 1 < len(chain_details):
+                next_switch_ip = (chain_details[i + 1][0]['switch_ip']
+                                  if isinstance(chain_details[i + 1], list)
+                                   else chain_details[i + 1]['switch_ip'])
+            if isinstance(chain_details[i], list):
+                if next_switch_ip != chain_details[i][0]['switch_ip']:
+                    port_chain.append([[chain_details[i][0]['switch_ip']],
+                                       chain_details[i][0]['port_num']])
+                    port_chain.append([[chain_details[i][0]['switch_ip']],
+                                       chain_details[i][1]['port_num']])
+                    port_chain.append([[chain_details[i][0]['switch_ip']],
+                                       1])
+                else:
+                    port_chain.append([[chain_details[i][0]['switch_ip']],
+                                       chain_details[i][0]['port_num']])
+                    port_chain.append([[chain_details[i][0]['switch_ip']],
+                                       chain_details[i][1]['port_num']])
+            else:
+                if next_switch_ip != chain_details[i]['switch_ip']:
+                    port_chain.append([[chain_details[i]['switch_ip']],
+                                       chain_details[i]['port_num']])
+                    port_chain.append([[chain_details[i]['switch_ip']],
+                                        1])
+                else:
+                    port_chain.append([[chain_details[i]['switch_ip']],
+                                       chain_details[i]['port_num']])
+    else:
+        i = -1
+        while i >= (-len(chain_details)):
+            #import pdb; pdb.set_trace()
+            if (i - 1) >= (-len(chain_details)):
+                next_switch_ip = (chain_details[i - 1][0]['switch_ip']
+                                  if isinstance(chain_details[i - 1], list)
+                                   else chain_details[i - 1]['switch_ip'])
+            if isinstance(chain_details[i], list):
+                if next_switch_ip != chain_details[i][0]['switch_ip']:
+                    port_chain.append([[chain_details[i][0]['switch_ip']],
+                                       chain_details[i][-1]['port_num']])
+                    port_chain.append([[chain_details[i][0]['switch_ip']],
+                                       chain_details[i][0]['port_num']])
+                    port_chain.append([[chain_details[i][0]['switch_ip']],
+                                       1])
+                else:
+                    port_chain.append([[chain_details[i][0]['switch_ip']],
+                                       chain_details[i][-1]['port_num']])
+                    port_chain.append([[chain_details[i][0]['switch_ip']],
+                                       chain_details[i][0]['port_num']])
+            else:
+                if next_switch_ip != chain_details[i]['switch_ip']:
+                    port_chain.append([[chain_details[i]['switch_ip']],
+                                       chain_details[i]['port_num']])
+                    port_chain.append([[chain_details[i]['switch_ip']],
+                                       1])
+                else:
+                    port_chain.append([[chain_details[i]['switch_ip']],
+                                       chain_details[i]['port_num']])
+            print port_chain
+            i -= 1
+
+    print "--------", port_chain, "---------"
+    return port_chain
