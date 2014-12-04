@@ -84,7 +84,7 @@ def get_topology_details(topo, redis, pycassa_obj, cassandra_pool):
 
 
 def construct_remote_flow(output_action, dst_mac):
-    flow_string = 'in_port=1,tcp,dl_dst=' + dst_mac + ','
+    flow_string = 'in_port=1,dl_dst=' + dst_mac + ','
     remote_ip = None
     for elem in output_action:
         m = re.match(r"(?P<key>(mod_vlan_vid|set_tunnel64|"
@@ -239,4 +239,49 @@ def prepare_expected_packet_path(chain_details, reverse):
             i -= 1
 
     print "--------", port_chain, "---------"
+    return port_chain
+
+
+def prepare_tap_expected_path(chain_details, reverse):
+    port_chain = []
+    tap_switch_ip = chain_details[1][0]['switch_ip']
+    if not reverse:
+        src_switch_ip = chain_details[0]['switch_ip']
+        dst_switch_ip = chain_details[-1]['switch_ip']
+        if src_switch_ip == tap_switch_ip:
+            tap_path = [[src_switch_ip], chain_details[0]['port_num'],
+                        [src_switch_ip], chain_details[1][0]['port_num']]
+        else:
+            tap_path = [[src_switch_ip], chain_details[0]['port_num'],
+                        [src_switch_ip], 1,
+                        [tap_switch_ip], chain_details[1][0]['port_num']]
+
+        if src_switch_ip == dst_switch_ip:
+            dst_path = [[src_switch_ip], chain_details[0]['port_num'],
+                        [src_switch_ip], chain_details[-1]['port_num']]
+        else:
+            dst_path = [[src_switch_ip], chain_details[0]['port_num'],
+                        [src_switch_ip], 1,
+                        [tap_switch_ip], chain_details[-1]['port_num']]
+    else:
+        src_switch_ip = chain_details[-1]['switch_ip']
+        dst_switch_ip = chain_details[0]['switch_ip']
+        if src_switch_ip == tap_switch_ip:
+            tap_path = [[src_switch_ip], chain_details[-1]['port_num'],
+                        [src_switch_ip], chain_details[-2][0]['port_num']]
+        else:
+            tap_path = [[src_switch_ip], chain_details[-1]['port_num'],
+                        [src_switch_ip], 1,
+                        [tap_switch_ip], chain_details[-2][0]['port_num']]
+
+        if src_switch_ip == dst_switch_ip:
+            dst_path = [[src_switch_ip], chain_details[-1]['port_num'],
+                        [src_switch_ip], chain_details[0]['port_num']]
+        else:
+            dst_path = [[src_switch_ip], chain_details[-1]['port_num'],
+                        [src_switch_ip], 1,
+                        [tap_switch_ip], chain_details[0]['port_num']]
+
+    port_chain.append(tap_path)
+    port_chain.append(dst_path)
     return port_chain
