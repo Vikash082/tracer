@@ -1,6 +1,8 @@
 import ast
 import json
+import pprint
 import re
+
 from lib import constants
 
 
@@ -124,7 +126,10 @@ def construct_flow(chain_details, current_chain_index, dst_mac, reverse,
                 # Considering only the case of L2
                 out_port = chain_details[current_chain_index][0]['port_num']
     # We don't require mac here.
-    flow_string = "in_port=" + str(out_port) + ",dl_dst=" + dst_mac
+    try:
+        flow_string = "in_port=" + str(out_port) + ",dl_dst=" + dst_mac
+    except:
+        raise Exception("Didn't got next port.")
     return flow_string, out_port
 
 
@@ -171,7 +176,12 @@ def validate_port(port_no, current_chain_index, chain_details, reverse,
 
 def dump_flow_in_file(filename, content):
     with open(filename, 'a+b') as logfile:
-        logfile.write(content)
+        # Aah thats not the way to do
+        if not isinstance(content, unicode):
+            logfile.write(pprint.pformat(content))
+        else:
+            logfile.write(content)
+        logfile.write("\n\n ========================================== \n\n")
 
 
 def prepare_expected_packet_path(chain_details, reverse):
@@ -262,7 +272,7 @@ def prepare_tap_expected_path(chain_details, reverse):
         else:
             dst_path = [[src_switch_ip], chain_details[0]['port_num'],
                         [src_switch_ip], 1,
-                        [tap_switch_ip], chain_details[-1]['port_num']]
+                        [dst_switch_ip], chain_details[-1]['port_num']]
     else:
         src_switch_ip = chain_details[-1]['switch_ip']
         dst_switch_ip = chain_details[0]['switch_ip']
@@ -280,7 +290,7 @@ def prepare_tap_expected_path(chain_details, reverse):
         else:
             dst_path = [[src_switch_ip], chain_details[-1]['port_num'],
                         [src_switch_ip], 1,
-                        [tap_switch_ip], chain_details[0]['port_num']]
+                        [dst_switch_ip], chain_details[0]['port_num']]
 
     port_chain.append(tap_path)
     port_chain.append(dst_path)

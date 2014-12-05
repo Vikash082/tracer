@@ -14,6 +14,8 @@ from lib.helper import get_action_value_endpoints, get_topology_details, \
     prepare_expected_packet_path, prepare_tap_expected_path
 
 
+# This is required only for my testing. It will not
+# go in production
 def get_switch_ip(switch_ip):
     if switch_ip == "90.90.90.93":
         original_switch_ip = '192.168.6.93'
@@ -36,8 +38,9 @@ direction1 = direction2 = None
 topo = list()
 traversed_path = []
 dst_port_num = []
-insertion_mode = None
+insertion_mode = l4_port = direction = None
 classifier = config.get("INFO", "classifier")
+
 
 server = redis.Redis(config.get("REDIS", 'ip'),
                       db=config.get("REDIS", 'db'))
@@ -51,12 +54,12 @@ pool = pycassa.pool.ConnectionPool(config.get("CASSANDRA", "keyspace"),
 #action_list = list()
 
 def policy_topology(policy_id):
-    global insertion_mode, reverse
+    global insertion_mode, reverse, classifier, direction, l4_port
     direction1 = direction2 = None
     policy_info = server.get('nvsd_connectivity_policy:' + policy_id)
     policy_info = json.loads(policy_info)
     topology_info['policy'] = policy_id
-    rule_list = list()
+    #rule_list = list()
     rules = policy_info.get('rules')
     left_cg = policy_info.get('left_group')
     right_cg = policy_info.get('right_group')
@@ -91,7 +94,9 @@ def policy_topology(policy_id):
         to_rule = server.get('nvsd_connectivity_rule:' + rule)
         to_rule = json.loads(to_rule)
         topology_info[rule + ":actions"] = to_rule['actions']
+        topology_info[rule + ":classifier"] = to_rule['classifier']
 
+    classifier = ''
     for rule in topology_info[policy_id + ':rules']:
         for action in topology_info[rule + ":actions"]:
             action_info = json.loads(server.get("nvsd_connectivity_action:" +
@@ -107,12 +112,21 @@ def policy_topology(policy_id):
                 elif not right_port:
                     topo.append([left_port])
             #print action_info
+        classifier_info = json.loads(server.get('nvsd_connectivity_classifier:'
+                                    + topology_info[rule + ":classifier"]))
+        if classifier_info.get('protocol'):
+            classifier += classifier_info['protocol'].lower()
+        else:
+            classifier += 'ip'
+        direction = classifier_info['direction']
+        l4_port = classifier_info['port']
 
     if reverse == True:
         topo.append(src_port)
     else:
         topo.append(dst_port)
     return topo
+
 
 # Thats a crapy comparison. ConfigParser sucks.
 if policy_id != 'None':
@@ -121,6 +135,9 @@ else:
     topo.append(src_port)
     topo.append(dst_port)
     topology_info['topology'] = topo
+
+if classifier == 'None':
+    classifier = 'ip'
 
 chain_details = get_topology_details(topo, server, pycassa, pool)
 
@@ -157,16 +174,32 @@ flow_log_file = (config.get("LOG", "directory") + str(policy_id) +
 
 traversed_path.append([[src_switch_ip], in_port])
 
+dump_flow_in_file(flow_log_file, chain_details)
 initial_flow_string = {'flow_string':
                        'in_port=' + str(in_port) +
                        ',' +
-                       'dl_dst=' + dst_mac}
+                       'dl_dst=' + dst_mac +
+                       ',' +
+                       classifier}
 #                        ',' +
 #                        config.get("INFO", "classifier")}
 
-if classifier:
-    initial_flow_string['flow_string'] += ',' + classifier
 
+def get_flow_port(flow_string):
+    global policy_id, reverse
+    if policy_id != 'None':
+        if not reverse:
+            if l4_port:
+                flow_string += ',' + 'tp_dst=' + str(l4_port)
+        else:
+            if direction and direction.lower() == "bi":
+                if l4_port:
+                    flow_string += ',' + 'tp_src=' + \
+                     str(l4_port)
+    return flow_string
+
+initial_flow_string['flow_string'] = get_flow_port(
+                                        initial_flow_string['flow_string'])
 payload = json.dumps(initial_flow_string)
 
 http = urllib3.PoolManager()
@@ -198,7 +231,6 @@ def get_ovs_action(src_switch_ip, payload, headers):
 
             dump_flow_in_file(flow_log_file, line)
     output_action_list = []
-
     for action in flow['OpenFlow actions']:
         if re.search(r"(output:[0-9]+)", action):
             output_action_list.append(action.split(','))
@@ -207,7 +239,7 @@ def get_ovs_action(src_switch_ip, payload, headers):
 
 
 def get_packet_path(src_switch_ip, payload):
-    global current_chain_index, headers, dst_switch_ip
+    global current_chain_index, headers, dst_switch_ip, insertion_mode
     output_action_lists = get_ovs_action(src_switch_ip, payload, headers)
 
     for output_action_list in output_action_lists:
@@ -224,29 +256,33 @@ def get_packet_path(src_switch_ip, payload):
                                                         dst_mac)
                 switch_ip = get_switch_ip(switch_ip)
                 try:
-                    validate_port(1, current_chain_index, chain_details,
+                    if insertion_mode:
+                        validate_port(1, current_chain_index, chain_details,
                                    reverse, switch_ip)
                 except:
                     pass
                 traversed_path.append([[src_switch_ip], 1])
-
-                payload = json.dumps({'flow_string': flow_string + ',' +
-                                      classifier})
-                src_switch_ip = switch_ip
-                get_packet_path(src_switch_ip, payload)
+                flow_string += ',' + classifier
+                payload = json.dumps({'flow_string': ',' +
+                                       get_flow_port(flow_string)})
+                #src_switch_ip = switch_ip
+                get_packet_path(switch_ip, payload)
             else:
     #             index = [i for i, item in enumerate(output_action_list)
     #                       if re.search(r"(output:[0-9]+)", item)]
 
     #             output_port = (re.match(r"(?P<key>(output)[:])(?P<port_no>[0-9]+)",
     #                            output_action_list[index[0]]).group('port_no'))
-                output_port = (re.match(r"(?P<key>(output)[:])(?P<port_no>[0-9]+)",
-                               output_action_list[i]).group('port_no'))
+                output_port = (re.match(r"(?P<key>(output)[:])"
+                                        "(?P<port_no>[0-9]+)",
+                                        output_action_list[i]).group(
+                                                            'port_no'))
                 output_port = ast.literal_eval(output_port)
 
                 try:
-                    validate_port(output_port, current_chain_index, chain_details,
-                                  reverse)
+                    if insertion_mode:
+                        validate_port(output_port, current_chain_index,
+                                       chain_details, reverse)
                 except:
                     """
                     Prepare report here
@@ -270,9 +306,11 @@ def get_packet_path(src_switch_ip, payload):
                                         else current_chain_index - 1)
                 traversed_path.append([[src_switch_ip], output_port])
                 if isinstance(chain_details[current_chain_index], list):
-                    current_switch_ip = chain_details[current_chain_index][0]['switch_ip']
+                    current_switch_ip = chain_details[current_chain_index][0][
+                                                                'switch_ip']
                 else:
-                    current_switch_ip = chain_details[current_chain_index]['switch_ip']
+                    current_switch_ip = chain_details[current_chain_index][
+                                                                'switch_ip']
 
                 if (output_port in dst_port_num and
                      current_switch_ip == dst_switch_ip):
@@ -284,8 +322,9 @@ def get_packet_path(src_switch_ip, payload):
                                                 current_chain_index,
                                                 dst_mac, reverse, output_port)
                     traversed_path.append([[src_switch_ip], out_port])
-                    payload = json.dumps({'flow_string': flow_string + ','
-                                          + classifier})
+                    flow_string += ',' + classifier
+                    payload = json.dumps({'flow_string': ','
+                                          + get_flow_port(flow_string)})
                 get_packet_path(src_switch_ip, payload)
 
 get_packet_path(src_switch_ip, payload)
@@ -303,3 +342,5 @@ if policy_id != 'None':
     print "--------------expected_path------------------"
     for hop in expected_path:
         print "hop", hop, "=====> ",
+print "\n\n"
+print " ******** Find the flow dump in --->", flow_log_file, "   *************"
