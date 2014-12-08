@@ -32,6 +32,8 @@ config.read("/home/guess/tracer/main/config/config.ini")
 src_port = config.get("INFO", 'src_port')
 dst_port = config.get("INFO", 'dst_port')
 policy_id = config.get("INFO", "policy_id")
+action_id = config.get("INFO", "action_id")
+validate_action_id = False
 reverse = False
 action_type = None
 direction1 = direction2 = None
@@ -101,6 +103,9 @@ def policy_topology(policy_id):
         for action in topology_info[rule + ":actions"]:
             action_info = json.loads(server.get("nvsd_connectivity_action:" +
                                                  action))
+            if action_id != action_info['id']:
+                continue
+            validate_action_id = True
             insertion_mode = action_info['action_type']
             chain_list = action_info['chain_list']
             topology_info[action + ':chain_list'] = chain_list
@@ -112,14 +117,14 @@ def policy_topology(policy_id):
                 elif not right_port:
                     topo.append([left_port])
             #print action_info
-        classifier_info = json.loads(server.get('nvsd_connectivity_classifier:'
+            classifier_info = json.loads(server.get('nvsd_connectivity_classifier:'
                                     + topology_info[rule + ":classifier"]))
-        if classifier_info.get('protocol'):
-            classifier += classifier_info['protocol'].lower()
-        else:
-            classifier += 'ip'
-        direction = classifier_info['direction']
-        l4_port = classifier_info['port']
+            if classifier_info.get('protocol'):
+                classifier += classifier_info['protocol'].lower()
+            else:
+                classifier += 'ip'
+            direction = classifier_info['direction']
+            l4_port = classifier_info['port']
 
     if reverse == True:
         topo.append(src_port)
@@ -127,10 +132,13 @@ def policy_topology(policy_id):
         topo.append(dst_port)
     return topo
 
-
 # Thats a crapy comparison. ConfigParser sucks.
 if policy_id != 'None':
-    topology_info['topology'] = policy_topology(policy_id)
+    if action_id != 'None':
+        topology_info['topology'] = policy_topology(policy_id)
+    else:
+        raise Exception('Please provide and action_id that belongs to policy'
+                        ' - %s ' % policy_id)
 else:
     topo.append(src_port)
     topo.append(dst_port)
@@ -145,6 +153,9 @@ pprint(chain_details)
 #src_switch_ip = chain_details[0]['switch_ip']
 
 if policy_id != 'None':
+    if not validate_action_id:
+        raise Exception('Please provide a valid action_id for policy - '
+                        '%s ' % policy_id)
     if insertion_mode == "l2redirect":
         expected_path = prepare_expected_packet_path(chain_details, reverse)
     else:
@@ -254,6 +265,8 @@ def get_packet_path(src_switch_ip, payload):
                 switch_ip, flow_string = construct_remote_flow(
                                                         output_action_list,
                                                         dst_mac)
+                # Comment this method if u re running this grom any NVSD
+                # node.
                 switch_ip = get_switch_ip(switch_ip)
                 try:
                     if insertion_mode:
@@ -300,6 +313,10 @@ def get_packet_path(src_switch_ip, payload):
                                                     output_port])
                             dst_switch_ip = chain_details[1][0]['switch_ip']
                             break
+                    elif insertion_mode.lower() == 'l2redirect':
+                        print ("Port %s also encountered while flow tracing"
+                                " on switch %s" % (output_port, src_switch_ip))
+                        continue
 
                 current_chain_index = ((current_chain_index + 1)
                                         if current_chain_index >= 0
