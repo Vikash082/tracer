@@ -56,7 +56,8 @@ pool = pycassa.pool.ConnectionPool(config.get("CASSANDRA", "keyspace"),
 #action_list = list()
 
 def policy_topology(policy_id):
-    global insertion_mode, reverse, classifier, direction, l4_port
+    global insertion_mode, reverse, classifier, direction, l4_port, \
+     validate_action_id
     direction1 = direction2 = None
     policy_info = server.get('nvsd_connectivity_policy:' + policy_id)
     policy_info = json.loads(policy_info)
