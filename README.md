@@ -26,7 +26,8 @@ Install:
 
    Edit the [REDIS] and [CASSANDRA] sections with proper IP.
 
-   For cassandra, make sure rpc ip should be 0.0.0.0.
+   For cassandra, make sure rpc ip should be 0.0.0.0. Check 
+   cassandra.yaml file.
 
 5. Go to The NVSD node:
 

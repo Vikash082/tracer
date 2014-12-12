@@ -18,12 +18,12 @@ from lib.helper import get_action_value_endpoints, get_topology_details, \
 # go in production
 def get_switch_ip(switch_ip):
     if switch_ip == "90.90.90.93":
-        original_switch_ip = '192.168.6.93'
+        switch_ip = '192.168.6.93'
     elif switch_ip == "90.90.90.94":
-        original_switch_ip = '192.168.6.94'
+        switch_ip = '192.168.6.94'
     elif switch_ip == "100.10.10.74":
-        original_switch_ip = '192.168.6.74'
-    return original_switch_ip
+        switch_ip = '192.168.6.74'
+    return switch_ip
 
 
 config = ConfigParser.ConfigParser()
