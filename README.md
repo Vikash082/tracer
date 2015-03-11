@@ -47,7 +47,7 @@ of src and destination without any classifier.
 6. Use server version. 
 7. cd tracer/main
 8. python -m src.control
-9. Open other terminal. cd tracer/main/test
+9. Open one more terminal. cd tracer/main/test
 10. Edit the IP, src_port, dst_port, action_id, policy_id.
 11. python test.py
 
