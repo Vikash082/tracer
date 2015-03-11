@@ -171,9 +171,40 @@ def validate_port(port_no, current_chain_index, chain_details, reverse,
             else:
                 next_hop_port = next_hop['port_num']
         if next_hop_port != port_no:
+#             if insertion_mode.lower() == 'tap' and not reverse:
+#                 if current_chain_index == 0:
+#                     port = chain_detail[-1]['port_num']
+#                     if port_no == ast.literal_eval(port):
+#                         return
+#                 elif insertion_mode.lower() == 'tap' and reverse:
+#                     port = chain_detail[0]['port_num']
+#                     if port_no == ast.literal_eval(port):
+#                         return     
             raise Exception("Output port did not match with the topology")
 
-
+def validate_tap_port(port_no, current_chain_index, chain_details, reverse,
+                      port_dst_num, remote_switch_ip=None):
+    if port_no == 1:
+        if isinstance(chain_details[current_chain_index + 1], list):
+            if (chain_details[current_chain_index+1][0]['switch_ip'] ==
+                 remote_switch_ip):
+                return
+        if reverse:
+            if chain_details[0]['switch_ip'] == remote_switch_ip:
+                return
+            else:
+                raise
+        else:
+            if chain_details[-1]['switch_ip'] == remote_switch_ip:
+                return
+            else:
+                raise
+    else:
+        if port_no in port_dst_num:
+            return
+        else:
+            raise
+    
 def dump_flow_in_file(filename, content):
     with open(filename, 'a+b') as logfile:
         # Aah thats not the way to do
@@ -186,6 +217,7 @@ def dump_flow_in_file(filename, content):
 
 def prepare_expected_packet_path(chain_details, reverse):
     port_chain = []
+    right_group = True
     next_switch_ip = None
     if not reverse:
         for i in range(0, len(chain_details)):
@@ -247,13 +279,22 @@ def prepare_expected_packet_path(chain_details, reverse):
                                        chain_details[i]['port_num']])
             print port_chain
             i -= 1
+            
+    if chain_details[0] != chain_details[-1]:
+        if reverse:
+            if isinstance(chain_details[-1], list):
+                right_group = False
+        else:
+            if isinstance(chain_details[0], list):
+                right_group = False 
 
     print "--------", port_chain, "---------"
-    return port_chain
+    return (port_chain, right_group)
 
 
 def prepare_tap_expected_path(chain_details, reverse):
     port_chain = []
+    right_group = True
     tap_switch_ip = chain_details[1][0]['switch_ip']
     if not reverse:
         src_switch_ip = chain_details[0]['switch_ip']
@@ -294,4 +335,12 @@ def prepare_tap_expected_path(chain_details, reverse):
 
     port_chain.append(tap_path)
     port_chain.append(dst_path)
-    return port_chain
+
+    if chain_details[0] != chain_details[-1]:
+        if reverse:
+            if isinstance(chain_details[-1], list):
+                right_group = False
+        else:
+            if isinstance(chain_details[0], list):
+                right_group = False 
+    return (port_chain, right_group)
