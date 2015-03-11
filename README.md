@@ -43,4 +43,11 @@ Install:
 It can be used without policy also, in that case it will be path
 of src and destination without any classifier.
 
+                    OR
+6. Use server version. 
+7. cd tracer/main
+8. python -m src.control
+9. Open other terminal. cd tracer/main/test
+10. Edit the IP, src_port, dst_port, action_id, policy_id.
+
 Use it and enhance it :)
