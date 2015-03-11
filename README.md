@@ -49,5 +49,6 @@ of src and destination without any classifier.
 8. python -m src.control
 9. Open other terminal. cd tracer/main/test
 10. Edit the IP, src_port, dst_port, action_id, policy_id.
+11. python test.py
 
 Use it and enhance it :)
